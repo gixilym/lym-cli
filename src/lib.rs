@@ -242,7 +242,14 @@ impl Command {
     fn ping(host: &str) {
         use std::process::Command as SysCmd;
 
-        let output = match SysCmd::new("ping").args(["-c", "1", "-W", "2", host]).output() {
+        // Linux: ping -c 1 -W 2 <host>   (timeout en segundos)
+        // Windows: ping -n 1 -w 2000 <host>  (timeout en milisegundos)
+        #[cfg(target_os = "windows")]
+        let args = ["-n", "1", "-w", "2000", host];
+        #[cfg(not(target_os = "windows"))]
+        let args = ["-c", "1", "-W", "2", host];
+
+        let output = match SysCmd::new("ping").args(args).output() {
             Ok(o) => o,
             Err(e) => {
                 eprintln!("lym: error al ejecutar ping: {e}");
@@ -252,12 +259,17 @@ impl Command {
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         if output.status.success() {
-            if let Some(time_str) = stdout
+            // Linux:   "time=23.1 ms"  → toma dos tokens ("23.1" y "ms")
+            // Windows: "time=12ms"     → toma un token ("12ms")
+            if let Some(after) = stdout
                 .lines()
                 .find(|l| l.contains("time="))
                 .and_then(|l| l.split("time=").nth(1))
             {
-                let time: String = time_str
+                let time = after
+                    .split(|c: char| c == '\r' || c == '\n')
+                    .next()
+                    .unwrap_or(after)
                     .split_whitespace()
                     .take(2)
                     .collect::<Vec<_>>()
